@@ -1,191 +1,88 @@
-AutoDock-GPU: AutoDock for GPUs and other accelerators
-======================================================
+# AutoDock-GPU 설치 및 실행 가이드
 
-<img src="logo.png" width="200">
+> 원본 `README` 링크: [https://github.com/ccsb-scripps/AutoDock-GPU/blob/develop/README.md](https://github.com/ccsb-scripps/AutoDock-GPU/blob/develop/README.md)
+>
+> `autogrid4` 및 `autodock-gpu`의 사용법이 상당히 까다로워, 2025년 7월 15일 현재 실행에 성공한 방법을 기준으로 정리합니다.
 
-# About
+---
 
-* AutoDock-GPU is developed by the [Forli lab](https://forlilab.org/) at Scripps Research.
-* OpenCL and Cuda accelerated version of AutoDock4.2.6. It leverages its embarrasingly parallelizable LGA by processing ligand-receptor poses in parallel over multiple compute units.
-* The OpenCL version was developed in collaboration with TU-Darmstadt and is able to target CPU, GPU, and FPGA architectures. This version itself was based on work done by Imre Pechan from evopro Innovation Kft.
-* The Cuda version was developed in collaboration with Nvidia to run AutoDock-GPU on the Oak Ridge National Laboratory's (ORNL) Summit, and it included a batched ligand pipeline developed by Aaron Scheinberg from Jubilee Development.
-* A SYCL version, which also supports recent Intel GPUs, is under development as a joint work of TUDa and Intel [Link here](https://github.com/emascarenhas/AutoDock-GPU).
+## 사전 준비
+- **NVIDIA GPU**가 탑재된 **리눅스 환경** (예: `Ubuntu 22.04`)
+- 도킹에 필요한 원본 데이터 (`pdb`, `csv` 파일 등)
 
-# Citation
+---
 
-Accelerating AutoDock4 with GPUs and Gradient-Based Local Search, [J. Chem. Theory Comput. 2021, 10.1021/acs.jctc.0c01006](https://doi.org/10.1021/acs.jctc.0c01006)
+## 1단계: 환경 설정 및 필수 도구 설치
 
-See [more relevant papers](https://github.com/ccsb-scripps/AutoDock-GPU/wiki/Publications)
+### 1. Miniconda 설치
+독립적인 파이썬 환경을 구성하기 위해 Miniconda를 설치합니다.
+```bash
+mkdir -p miniconda3
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda3/miniconda.sh
+bash miniconda3/miniconda.sh -b -u -p miniconda3
+rm miniconda3/miniconda.sh
+```
+> *Miniconda 설치법 참고: [Official Guide](https://www.anaconda.com/docs/getting-started/miniconda/install#macos-linux-installation)*
 
-# Features
-
-* Gradient-based local search methods (e.g. ADADELTA), as well as an improved version of Solis-Wets from AutoDock 4.
-* Cuda and OpenCL paths to support a wide variety of target platforms based on GPU as well as multicore CPU accelerators.
-* Observed speedups of up to 4x (quad-core CPU) and 56x (GPU) over the original serial AutoDock 4.2 (Solis-Wets) on CPU.
-* A batched ligand pipeline to run virtual screenings on the same receptor (both OpenCL and Cuda)
-
-# Setup
-
-| Operating system                         | CPU                          | GPU                                            |
-|:----------------------------------------:|:----------------------------:|:----------------------------------------------:|
-|CentOS 6.7 & 6.8 / Ubuntu 14.04 & 16.04   | Intel SDK for OpenCL 2017    | OpenCL / CUDA >= 11                            |
-|macOS Catalina 10.15.1                    | Apple / Intel                | Apple / Intel Iris, Radeon Vega 64, Radeon VII |
-
-
-Other environments or configurations likely work as well, but are untested. AutoDock-GPU since commit 846dc2b requires a C++17-capable compiler, which in practice means GCC >= 9. This also means the minimum version supported for Cuda-compilation is Cuda 11, however, since all versions of Cuda also come with OpenCL older versions can still be used using the OpenCL code path (`DEVICE=OCLGPU`).
-
-# Compilation
-
-The first step is to set environmental variables `GPU_INCLUDE_PATH` and `GPU_LIBRARY_PATH`,
-as described here: https://github.com/ccsb-scripps/AutoDock-GPU/wiki/Guideline-for-users
-
-```zsh
-make DEVICE=<TYPE> NUMWI=<NWI>
+### 2. 빌드 도구 및 쉘(Shell) 설치
+`autogrid4` 컴파일에 필요한 C++ 컴파일러, 빌드 도구, 쉘 등을 설치합니다.
+```bash
+apt-get update && apt-get install -y build-essential autoconf automake libtool git csh tcsh meson ninja-build
 ```
 
-| Parameters | Description                  | Values                                             |
-|:----------:|:----------------------------:|:--------------------------------------------------:|
-| `<TYPE>`   | Accelerator chosen           | `CPU`, `GPU`, `CUDA`, `OCLGPU`, `OPENCL`           |
-| `<NWI>`    | work-group/thread block size | `1`, `2`, `4`, `8`, `16`, `32`, `64`, `128`, `256` |
+### 3. Conda 가상환경 생성 및 라이브러리 설치
+`docking`이라는 이름의 가상환경을 만들고, 필요한 파이썬 라이브러리들을 설치합니다.
+```bash
+# Conda 초기화 (새로운 터미널 세션에서 필요할 수 있음)
+source miniconda3/bin/activate
 
-When `DEVICE=GPU` is chosen, the Makefile will automatically tests if it can compile Cuda succesfully. To override, use `DEVICE=CUDA` or `DEVICE=OCLGPU`. The cpu target is only supported using OpenCL. Furthermore, an OpenMP-enabled overlapped pipeline (for setup and processing) can be compiled with `OVERLAP=ON`.
-Hints: The best work-group size depends on the GPU and workload. Try `NUMWI=128` or `NUMWI=64` for modern cards with the example workloads. On macOS, use `NUMWI=1` for CPUs.
+# 가상환경 생성 및 활성화
+conda create -n docking python=3.11 -y
+conda activate docking
 
-After successful compilation, the host binary **autodock_&lt;type&gt;_&lt;N&gt;wi** is placed under [bin](./bin).
+# 파이썬 라이브러리 설치
+pip install pandas tqdm rdkit meeko biopython joblib prody jupyterlab ipykernel ipywidgets
 
-| Binary-name portion | Description                  | Values                                            |
-|:-------------------:|:----------------------------:|:-------------------------------------------------:|
-| **&lt;type&gt;**    | Accelerator chosen           | `cpu`, `gpu`                                      |
-| **&lt;N&gt;**       | work-group/thread block size | `1`, `2`, `4`, `8`,`16`, `32`, `64`, `128`, `256` |
+# PyTorch 설치 (CUDA 12.x 버전 기준)
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+> *PyTorch 설치법 참고: [Official Guide](https://pytorch.org/get-started/locally/)*
 
+---
 
-# Usage
+## 2단계: `autogrid4` 소스 코드 직접 컴파일
+> *원본 저장소: [https://github.com/ccsb-scripps/AutoGrid](https://github.com/ccsb-scripps/AutoGrid)*
 
-## Basic command
-```zsh
-./bin/autodock_<type>_<N>wi \
---ffile <protein>.maps.fld \
---lfile <ligand>.pdbqt \
---nrun <nruns>
+Conda로 설치 시 발생하는 호환성 문제를 해결하기 위해, 소스 코드를 직접 컴파일합니다.
+
+```bash
+# 1. 소스 코드 다운로드
+git clone https://github.com/ccsb-scripps/AutoGrid.git
+
+# 2. 폴더 이동 및 Meson으로 컴파일
+cd AutoGrid
+meson setup build
+cd build
+meson compile
 ```
 
-| Mandatory options|   | Description   | Value                     |
-|:----------------:|:-:|:-------------:|:-------------------------:|
-|--ffile           |-M |Protein file   |&lt;protein&gt;.maps.fld   |
-|--lfile           |-L |Ligand file    |&lt;ligand&gt;.pdbqt       |
+---
 
-Both options can alternatively be provided in the contents of the files specified with `--filelist (-B)` (see below for format) and `--import_dpf (-I)` (AD4 dpf file format).
+## 3단계: `AutoDock-GPU` Pre-compiled 바이너리 다운로드
+> *릴리즈 노트: [https://github.com/ccsb-scripps/AutoDock-GPU/releases](https://github.com/ccsb-scripps/AutoDock-GPU/releases)*
 
-## Example
-```zsh
-./bin/autodock_gpu_64wi \
---ffile ./input/1stp/derived/1stp_protein.maps.fld \
---lfile ./input/1stp/derived/1stp_ligand.pdbqt
+복잡한 컴파일 과정 없이, 개발자가 제공하는 실행 파일을 직접 다운로드합니다.
+
+```bash
+# 1. 현재 작업 폴더로 이동 (예: /DOCKER/)
+cd /DOCKER/
+
+# 2. CUDA 12 버전에 맞는 바이너리 다운로드
+wget https://github.com/ccsb-scripps/AutoDock-GPU/releases/download/v1.6/adgpu-v1.6_linux_x64_cuda12_128wi
+
+# 3. 실행 권한 부여
+chmod +x adgpu-v1.6_linux_x64_cuda12_128wi
+
+# 4. 사용하기 편한 이름으로 변경
+mv adgpu-v1.6_linux_x64_cuda12_128wi autodock_gpu_128wi
 ```
-By default the output log file is written in the current working folder. Examples of output logs can be found under [examples/output](examples/output/).
-
-## Supported arguments
-
-| Argument          |   | Description                                           | Default value    <tr><td colspan="4">**INPUT**</td></tr>
-|:------------------|:-:|:------------------------------------------------------|-----------------:|
-|--lfile            |-L | Ligand pdbqt file                                     | no default       |
-|--ffile            |-M | Grid map files descriptor fld file                    | no default       |
-|--flexres          |-F | Flexible residue pdbqt file                           | no default       |
-|--filelist         |-B | Batch file                                            | no default       |
-|--import_dpf       |-I | Import AD4-type dpf input file (only partial support) | no default       |
-|--xraylfile        |-R | reference ligand file for RMSD analysis               | ligand file      <tr><td colspan="4">**CONVERSION**</td></tr>
-|--xml2dlg          |-X | One (or many) AD-GPU xml file(s) to convert to dlg(s) | no default       <tr><td colspan="4">**OUTPUT**</td></tr>
-|--resnam           |-N | Name for docking output log                           | ligand basename  |
-|--contact_analysis |-C | Perform distance-based analysis (description below)   | 0 (no)           |
-|--xmloutput        |-x | Specify if xml output format is wanted                | 1 (yes)          |
-|--dlgoutput        |-d | Control if dlg output is created                      | 1 (yes)          |
-|--dlg2stdout       |-2 | Write dlg file output to stdout (if not OVERLAP=ON)   | 0 (no)           |
-|--rlige            |   | Print reference ligand energies                       | 0 (no)           |
-|--gfpop            |   | Output all poses from all populations of each LGA run | 0 (no)           |
-|--npdb             |   | # pose pdbqt files from populations of each LGA run   | 0                |
-|--gbest            |   | Output single best pose as pdbqt file                 | 0 (no)           |
-|--clustering       |   | Output clustering analysis in dlg and/or xml file     | 1 (yes)          |
-|--hsym             |   | Handle symmetry in RMSD calc.                         | 1 (yes)          |
-|--rmstol           |   | RMSD clustering tolerance                             | 2 (Å)            <tr><td colspan="4">**SETUP**</td></tr>
-|--devnum           |-D | OpenCL/Cuda device number (counting starts at 1)      | 1                |
-|--loadxml          |-c | Load initial population from xml results file         | no default       |
-|--seed             |-s | Random number seeds (up to three comma-sep. integers) | time, process id <tr><td colspan="4">**SEARCH**</td></tr>
-|--heuristics       |-H | Ligand-based automatic search method and # evals      | 1 (yes)          |
-|--heurmax          |-E | Asymptotic heuristics # evals limit (smooth limit)    | 12000000         |
-|--autostop         |-A | Automatic stopping criterion based on convergence     | 1 (yes)          |
-|--asfreq           |-a | AutoStop testing frequency (in # of generations)      | 5                |
-|--nrun             |-n | # LGA runs                                            | 20               |
-|--nev              |-e | # Score evaluations (max.) per LGA run                | 2500000          |
-|--ngen             |-g | # Generations (max.) per LGA run                      | 42000            |
-|--lsmet            |-l | Local-search method                                   | ad (ADADELTA)    |
-|--lsit             |-i | # Local-search iterations (max.)                      | 300              |
-|--psize            |-p | Population size                                       | 150              |
-|--mrat             |   | Mutation rate                                         | 2   (%)          |
-|--crat             |   | Crossover rate                                        | 80  (%)          |
-|--lsrat            |   | Local-search rate                                     | 100 (%)          |
-|--trat             |   | Tournament (selection) rate                           | 60  (%)          |
-|--dmov             |   | Maximum LGA movement delta                            | 6 (Å)            |
-|--dang             |   | Maximum LGA angle delta                               | 90 (°)           |
-|--rholb            |   | Solis-Wets lower bound of rho parameter               | 0.01             |
-|--lsmov            |   | Solis-Wets movement delta                             | 2 (Å)            |
-|--lsang            |   | Solis-Wets angle delta                                | 75 (°)           |
-|--cslim            |   | Solis-Wets cons. success/failure limit to adjust rho  | 4                |
-|--stopstd          |   | AutoStop energy standard deviation tolerance          | 0.15 (kcal/mol)  |
-|--initswgens       |   | Initial # generations of Solis-Wets instead of -lsmet | 0 (no)           <tr><td colspan="4">**SCORING**</td></tr>
-|--derivtype        |-T | Derivative atom types (e.g. C1,C2,C3=C/S4=S/H5=HD)    | no default       |
-|--modpair          |-P | Modify vdW pair params (e.g. C1:S4,1.60,1.200,13,7)   | no default       |
-|--ubmod            |-u | Unbound model: 0 (bound), 1 (extended), 2 (compact)   | 0 (same as bound)|
-|--smooth           |   | Smoothing parameter for vdW interactions              | 0.5 (Å)          |
-|--elecmindist      |   | Min. electrostatic potential distance (w/ dpf: 0.5 Å) | 0.01 (Å)         |
-|--modqp            |   | Use modified QASP from VirtualDrug or AD4 original    | 0 (no, use AD4)  |
-
-Autostop is ON by default since v1.4. The collective distribution of scores among all LGA populations
-is tested for convergence every `<asfreq>` generations, and docking is stopped if the top-scored poses
-exhibit a small variance. This avoids wasting computation after the best docking solutions have been found.
-The heuristics set the number of evaluations at a generously large number. They are a function
-of the number of rotatable bonds. It prevents unreasonably long dockings in cases where autostop fails
-to detect convergence.
-In our experience `--heuristics 1` and `--autostop 1` allow sufficient score evaluations for searching
-the energy landscape accurately. For molecules with many rotatable bonds (e.g. about 15 or more)
-it may be advisable to increase `--heurmax`.
-
-When the heuristics is used and `--nev <max evals>` is provided as a command line argument it provides the (hard) upper # of evals limit to the value the heuristics suggests. Conversely, `--heurmax` is the rolling-off type asymptotic limit to the heuristic's # of evals formula and should only be changed with caution.
-The batch file is a text file containing the parameters to `--ffile`, `--lfile`, and `--resnam` each on an individual line. It is possible to only use one line to specify the Protein grid map file which means it will be used for all ligands. Here is an example:
-```
-./receptor1.maps.fld
-./ligand1.pdbqt
-Ligand 1
-./receptor2.maps.fld
-./ligand2.pdbqt
-Ligand 2
-./receptor3.maps.fld
-./ligand3.pdbqt
-Ligand 3
-```
-
-When the distance-based analysis is used (`--contact_analysis 1` or `--contact_analysis <R_cutoff>,<H_cutoff>,<V_cutoff>`),
-the ligand poses of a given run (either after a docking run or even when `--xml2dlg <xml file(s)>` is used) are analyzed in
-terms of their individual atom distances to the target protein with individual cutoffs for:
-* `R`eactive (default: 2.1 Å): These are interactions between modified atom types numbered 1, 4, or 7 (i.e. between C1 and S4)
-* `H`ydrogen bonds (default: 3.7 Å): Interactions between Hydrogen-bond donor (closest N,O,S to an HD, or HD otherwise) and acceptor atom types (NA,NS,OA,OS,SA atom types).
-* `V`an der Waals (default: 4.0  Å): All other interactions not fulfilling the above criteria.
-
-The contact analysis results for each pose are output in dlg lines starting with `ANALYSIS:` and/or in `<contact_analysis>` blocks in xml file output.
-
-# Documentation
-
-Visit the project [Wiki](https://github.com/ccsb-scripps/AutoDock-GPU/wiki).
-
-AutoDock-GPU requires [Meeko](https://github.com/forlilab/meeko) for
-preparing the receptor and ligands, and
-[autogrid](https://github.com/ccsb-scripps/autogrid) for calculating the
-affinity grid maps, including the file ending in `.maps.fld` that is passed
-to option `-M` or `--ffile`.
-
-Visit [the Meeko documentation](https://meeko.readthedocs.io) for more
-information and tutorials covering AutoDock-GPU usage.
-
-# Contributing
-
-* If you have a bug report, please check the [open issues](https://github.com/ccsb-scripps/AutoDock-GPU/issues), and if it has not been reported yet, open a new one.
-* If you want to add a new feature, pull/fork the code and submit a [pull request](https://github.com/ccsb-scripps/AutoDock-GPU/pulls).
